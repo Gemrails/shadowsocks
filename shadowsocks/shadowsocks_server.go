@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/go-units"
@@ -40,13 +41,19 @@ type passwdManager struct {
 func (pm *passwdManager) UpdatePortPasswd(port, password string, auth bool) {
 	pl, ok := pm.get(port)
 	if !ok {
-		log.Infof("new port %s added\n", port)
+		log.Infof("new port %s added", port)
 	} else {
 		if pl.password == password {
 			return
 		}
-		log.Infof("closing port %s to update password\n", port)
-		pl.listener.Close()
+		log.Infof("closing port %s to update password", port)
+		if err := pl.listener.Close(); err != nil {
+			log.Errorln("Close listener of port %s error:%v when update password", port, err)
+		}
+
+		// Wait for listener close. Bug for golang listener.Close()
+		// https://github.com/golang/go/issues/10527
+		time.Sleep(time.Second)
 	}
 	// run will add the new port listener to passwdManager.
 	// So there maybe concurrent access to passwdManager and we need lock to protect it.
@@ -74,7 +81,7 @@ func (pm *passwdManager) Reload() {
 	}
 	// port password still left in the old config should be closed
 	for port := range oldconfig.PortPassword {
-		log.Infof("closing port %s as it's deleted\n", port)
+		log.Infof("closing port %s as it's deleted", port)
 		pm.del(port)
 	}
 	log.Infoln("password updated")
